@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本地凭据（绝不入库）· local credentials — never commit
+settings.local.json
+
+# 运行期数据 / 索引（一般在收件夹的 索引/ 下，不在本仓库；这里兜底）
+索引/
+台账.jsonl
+索引.db
+目录.md
+_预览.md
+_对账清单.md
+_文件夹待裁决.md
+watch.log
+.lock
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
