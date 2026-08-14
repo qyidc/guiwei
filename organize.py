@@ -86,6 +86,14 @@ DEFAULTS = {
         "content_keywords": ["账户","余额","交易","流水","对账","开户行","转账","扣款","银行卡","卡号","身份证号","开户","escrow","托管账户","收支明细","还款","本金","抵押贷款","按揭","对公账户","银行流水","基因","序列","变异","snp","病历","诊断","医保","处方","报税","完税","纳税","薪资","工资条","公积金","社保","backup_code","恢复码","私钥","助记词","seed phrase",
                              "check number","account number","routing number","wire transfer","iban","swift code","mortgage","overdraft","balance","transaction history","statement period","principal balance","bank statement"],
         "content_min": 2,
+        # 敏感件怎么读(2026-08-14)。默认 none = 老行为:一个字节都不读、不外发。
+        #   none  永不读,只按文件名归档 + 索引打码
+        #   local 用**本机 Claude 订阅**读(claude -p):正文只到 Anthropic,不经任何中转、不用别人的 key
+        #   brain 跟普通件一样走 brain.backend(⚠ 若 backend=llm_relay,正文会经过那台中转)
+        # 🔴 "跑在自己机器上、用自己的订阅"这句话只有在 local 下才成立 —— 默认的 llm_relay
+        #    是第三方中转,把敏感件交给它等于把闸门拆了还搬到了别人家。
+        "read_with": "none",
+        "local_model": "sonnet",        # local 模式下交给 claude -p 的模型
     },
     "naming": {"date_format": "%Y-%m-%d"},
     "brain": {
@@ -929,7 +937,9 @@ def render_catalog(cfg):
             cur = cat
         t = r.get("tags", {})
         who = " / ".join(x for x in (t.get("客户"), t.get("项目"), t.get("人名")) if x) or "—"
-        summ = "「敏感·不入明文」" if r.get("sensitive") else (r.get("summary","") or "")[:60]
+        # 判据同命名那处:看这一件有没有真被读过(打码件的 summary 本身就是那句说明),
+        # 不再一刀切按 sensitive 遮 —— 本机订阅读过的敏感件，梗概只存在这台机器上。
+        summ = (r.get("summary", "") or "")[:60]
         name = (r.get("new_name","") or "").replace("|", "\\|")
         out.append(f"| {name} | {t.get('类型','—')} | {who} | {r.get('date','')} | {summ} |")
     (system_dir(cfg) / "目录.md").write_text("\n".join(out) + "\n", encoding="utf-8")
@@ -1104,6 +1114,7 @@ def process(cfg, apply=False, quiet=False):
 
         # 1) 采集 + 抽取
         records, text_items, image_items, audio_items, video_items, skipped = [], [], [], [], [], []
+        text_local_items = []      # 敏感且 read_with=local:走本机 claude 订阅读,不经中转
         for idx, path in enumerate(files):
             if apply and not is_stable(path, cfg["general"]["stable_seconds"]):
                 skipped.append((path.name, "未就绪/下载中"))
@@ -1123,8 +1134,11 @@ def process(cfg, apply=False, quiet=False):
                    "sha256": sha, "date": date_str, "date_source": dsrc, "category": bucket,
                    "type_bucket": bucket, "sensitive": sens}
             records.append(rec)
-            if sens:
-                rec["_route"] = "noread"             # 敏感件永不读
+            sens_read = cfg["sensitive"].get("read_with", "none")
+            # 🔴 音视频只有 Gemini 一条路(第三方),所以敏感音视频无论 read_with 怎么配都不读 ——
+            #    "本机订阅"在这两个模态上没有对应实现,不能拿它当借口把正文发出去。
+            if sens and (sens_read == "none" or bucket in ("音频", "视频")):
+                rec["_route"] = "noread"             # 敏感件不读
             elif bucket == "音频":
                 rec["_route"] = "audio"; audio_items.append(rec)
             elif bucket == "视频":
@@ -1136,13 +1150,19 @@ def process(cfg, apply=False, quiet=False):
                 if txt is None:
                     rec["_route"] = "image"
                     image_items.append(rec)
-                elif content_is_sensitive(txt, cfg):
+                elif content_is_sensitive(txt, cfg) and sens_read == "none":
                     rec["sensitive"] = True          # 内容级敏感 → 不发 LLM,按敏感打码
                     rec["_route"] = "noread"
                 else:
+                    if content_is_sensitive(txt, cfg):
+                        rec["sensitive"] = True      # 仍标敏感:决定用哪个大脑读,不决定读不读
                     rec["_excerpt"] = txt
-                    rec["_route"] = "text"
-                    text_items.append(rec)
+                    if rec["sensitive"] and sens_read == "local":
+                        rec["_route"] = "text_local"
+                        text_local_items.append(rec)
+                    else:
+                        rec["_route"] = "text"
+                        text_items.append(rec)
 
         # 2) 大脑:文本批 + 各图片 并发跑(每个调用独立 → 总耗时≈最慢一个,不再串行排队)
         import concurrent.futures
@@ -1159,6 +1179,15 @@ def process(cfg, apply=False, quiet=False):
             jobs.append(("audio", r))
         for r in video_items:
             jobs.append(("video", r))
+        # 敏感批:同样按 batch_size 分批,但 cfg 换成本机 claude 订阅
+        if text_local_items:
+            local_cfg = json.loads(json.dumps(cfg))
+            local_cfg["brain"]["backend"] = "claude_cli"
+            local_cfg["brain"]["model"] = cfg["sensitive"].get("local_model", "sonnet")
+            for k in range(0, len(text_local_items), bs):
+                chunk = text_local_items[k:k + bs]
+                jobs.append(("text_local", [{"i": r["i"], "name": r["orig_name"], "type_bucket": r["type_bucket"],
+                                             "date": r["date"], "excerpt": r["_excerpt"]} for r in chunk]))
 
         def _run(job):
             kind, data = job
@@ -1169,6 +1198,12 @@ def process(cfg, apply=False, quiet=False):
                     return {data["i"]: res} if res else {}
                 except Exception as e:
                     log(f"  ⚠ {kind}失败 {data['orig_name'][:30]}: {e}")
+                    return {}
+            if kind == "text_local":
+                try:
+                    return brain_text_batch(data, local_cfg)   # 本机订阅,正文不出机
+                except Exception as e:
+                    log(f"  ⚠ 敏感批(本机订阅)失败,这些件按敏感打码归档: {e}")
                     return {}
             try:
                 return brain_text_batch(data, cfg)  # 内部已带 force_json + 重试
@@ -1187,15 +1222,25 @@ def process(cfg, apply=False, quiet=False):
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
                 for got in ex.map(_run, jobs):
                     results.update(got)
-            log(f"  · 大脑并发完成 {len(results)}/{len(text_items)+len(image_items)+len(audio_items)+len(video_items)} 条")
+            log(f"  · 大脑并发完成 {len(results)}/{len(text_items)+len(text_local_items)+len(image_items)+len(audio_items)+len(video_items)} 条")
 
         # 3) 组装命名 + 落地/预览
         proposals = []
         root = Path(cfg["general"]["root"])
         con = db_connect(cfg) if apply else None
+        deferred = 0
         for r in records:
             res = results.get(r["i"], {})
-            if r["sensitive"]:
+            # 🔴 本该读却没读到（中转 5xx / claude 不在 PATH / 网络抖）→ 这轮不动它，下轮再试。
+            #    自动跑起来之后，"降级成 日期_文档_原名 照样归档" 会把一次暂时性故障
+            #    变成写进台账的既成事实；晚十分钟比错一个名字便宜得多。
+            #    ⚠ 只管本该读的路由；noread（敏感不读/二进制/超大件）本来就没有结果，照常落地。
+            if not res and r.get("_route") in ("text", "text_local", "image", "audio", "video"):
+                deferred += 1
+                continue
+            # 🔴 判据从"是不是敏感"改成"这一件到底有没有被读到" —— read_with=local 时敏感件
+            #    是真读过的,还按打码命名等于白花那笔订阅额度、检索价值也拿不到。
+            if r["sensitive"] and not res:
                 stem = sanitize(Path(r["orig_name"]).stem)
                 semantic = sensitive_label(r["orig_name"])
                 tags = {"客户":"", "人名":"", "项目":"", "类型": semantic, "敏感": True}
@@ -1239,6 +1284,8 @@ def process(cfg, apply=False, quiet=False):
         for nm, why in skipped:
             log(f"  · 跳过 {nm[:34]}: {why}")   # 让 watch.log 看得到跳过原因(未就绪→周期重扫会重试)
         write_report(cfg, proposals, skipped, apply)
+        if deferred:
+            log(f"  ⏸ {deferred} 件大脑没读到,这轮不动它们,下轮再试")
         log(f"完成。处理 {len(proposals)} 条,跳过 {len(skipped)} 条。"
             f"{'已写入台账,可 undo。' if apply else '这是 dry-run,未动文件,看 索引/_预览.md。'}")
         process_folders(cfg, apply, quiet)   # 散文件处理完,再判断文件夹(软件→压zip)
@@ -1254,7 +1301,8 @@ def write_report(cfg, proposals, skipped, apply):
     for p in proposals:
         t = p["tags"]
         who = " / ".join(x for x in (t.get("客户"), t.get("项目"), t.get("人名")) if x) or "—"
-        summ = "「敏感」" if p["sensitive"] else (p["summary"] or "")[:50]
+        # 同 目录.md:读过就写真梗概(打码件的 summary 本身就是那句说明)
+        summ = (p["summary"] or "")[:50]
         o = p["orig_name"].replace("|", "\\|")
         n = f"{p['category']}/{p['new_name']}".replace("|", "\\|")
         out.append(f"| {o} | {n} | {t.get('类型','—')} | {who} | {p['date']}({p['date_source']}) | {summ} |")
