@@ -100,6 +100,11 @@ DEFAULTS = {
         "backend": "llm_relay",         # llm_relay=OpenAI 兼容 HTTP(推荐,任意官方/中转) | claude_cli=走本机 Claude CLI 订阅(慢~50s/文件)
         "model": "gpt-4o-mini",         # 任意 OpenAI 兼容多模态模型;要用 Claude/别家只需改 credentials 的 base_url + 这里的 model
         "credential_group": "llm_relay",
+        # 🔴🔴 local_only(2026-08-14):正文一个字节都不出这台机器。打开后
+        #   · backend 必须是 claude_cli(用本机 Claude 订阅),否则启动即报错 —— 这条不能靠"记得配"
+        #   · 音频/视频**一律不读**:那条路只有 Gemini(第三方),本机没有对应实现。
+        #     少一个能力,好过嘴上说不出机、实际把录音发出去。
+        "local_only": False,
         "bypass_proxy": True,
         "timeout": 180,
         "batch_size": 8,
@@ -156,6 +161,11 @@ def load_config(root_hint=None):
             cfg = deep_merge(cfg, user)
         except Exception as e:
             log(f"⚠ 规则.json 解析失败,用默认配置: {e}")
+    # 🔴 local_only 的承诺必须在这儿兑现,而不是靠配置的人记得同时把 backend 也改了。
+    #    配错就当场停,不给"以为不出机、其实全发中转"这种状态存在的机会。
+    if cfg["brain"].get("local_only") and cfg["brain"].get("backend") != "claude_cli":
+        raise SystemExit("规则.json 配置冲突: brain.local_only=true 要求 brain.backend=\"claude_cli\" "
+                         f"(当前是 \"{cfg['brain'].get('backend')}\")。正文不出机这件事不能只写一半。")
     return cfg
 
 
@@ -1137,7 +1147,10 @@ def process(cfg, apply=False, quiet=False):
             sens_read = cfg["sensitive"].get("read_with", "none")
             # 🔴 音视频只有 Gemini 一条路(第三方),所以敏感音视频无论 read_with 怎么配都不读 ——
             #    "本机订阅"在这两个模态上没有对应实现,不能拿它当借口把正文发出去。
-            if sens and (sens_read == "none" or bucket in ("音频", "视频")):
+            local_only = cfg["brain"].get("local_only", False)
+            if local_only and bucket in ("音频", "视频"):
+                rec["_route"] = "noread"             # 本机订阅没有音视频通道 ⇒ 不读,只按名归档
+            elif sens and (sens_read == "none" or bucket in ("音频", "视频")):
                 rec["_route"] = "noread"             # 敏感件不读
             elif bucket == "音频":
                 rec["_route"] = "audio"; audio_items.append(rec)
