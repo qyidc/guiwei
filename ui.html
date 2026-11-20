@@ -327,7 +327,32 @@ async function run(cmd){
 
 document.querySelectorAll("[data-run]").forEach(b => b.onclick = ()=> run(b.dataset.run));
 
-refresh(); loadConfig();
+// 刷新页面/换窗口回来时,接回后端仍在跑的任务(以前一刷新就显示"空闲",其实进程还在动)
+async function reattach(){
+  try{
+    const r = await fetch("/api/jobs"); const j = await r.json();
+    const live = (j.jobs || []).find(x => !x.done);
+    if (!live) return;
+    document.querySelector('nav button[data-tab="log"]').click();
+    $("#logBox").textContent = "";
+    setBusy(true, live.cmd);
+    appendLog(`（接回已在跑的任务 ${live.cmd},已运行 ${live.elapsed}s —— 之前页面刷新过）`);
+    es = new EventSource(`/api/job?id=${live.id}`);
+    es.onmessage = e => { const d = JSON.parse(e.data); if (d.line) appendLog(d.line); };
+    es.addEventListener("done", e => {
+      const d = JSON.parse(e.data); if (es) { es.close(); es = null; } setBusy(false);
+      appendLog(d.code === 0 ? "✓ 任务完成" : `⚠ 任务退出码 ${d.code}`);
+      refresh(); loadConfig();
+    });
+    es.onerror = () => { if (es) { es.close(); es = null; } setBusy(false); };
+  }catch(e){}
+}
+
+refresh(); loadConfig(); reattach();
+setInterval(()=>{ if (running) { fetch("/api/jobs").then(r=>r.json()).then(j=>{
+  const live = (j.jobs||[]).find(x=>!x.done);
+  if (live) $("#jobMeta").textContent = `organize.py ${live.cmd} — 已运行 ${live.elapsed}s,日志在实时刷`;
+}); } }, 3000);
 setInterval(()=>{ if (!running) { fetch("/api/status").then(r=>r.json()).then(j=>{ S=j; renderCards(); renderOverview(); }); } }, 8000);
 </script>
 </body>

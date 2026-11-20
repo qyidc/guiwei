@@ -1120,14 +1120,34 @@ def render_catalog(cfg):
 # ----------------------------------------------------------------------------
 # 单飞锁
 # ----------------------------------------------------------------------------
+def _pid_alive(pid):
+    """锁里记的 pid 还活着吗 —— 进程崩了/被杀了,锁要能立刻让出来,别让人干等 10 分钟。"""
+    try:
+        pid = int(pid)
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        import psutil
+        return psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except Exception:
+        pass
+    try:                      # 没有 psutil 就退回标准库的探测
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
 def acquire_lock(cfg):
     lk = system_dir(cfg) / ".lock"
     lk.parent.mkdir(parents=True, exist_ok=True)
     if lk.exists():
         try:
             old = json.loads(lk.read_text(encoding="utf-8"))
-            if time.time() - old.get("ts", 0) < 600:
-                return None  # 有人在跑
+            if time.time() - old.get("ts", 0) < 600 and _pid_alive(old.get("pid")):
+                return None  # 真的有人在跑
         except Exception:
             pass
     lk.write_text(json.dumps({"pid": os.getpid(), "ts": time.time()}), encoding="utf-8")
@@ -1162,6 +1182,19 @@ def gather_files(cfg):
     tops = {n.split("/")[0] for n in known} | known
     # folder_ignore 里的目录(默认 00 索引文档)是用户自己的索引体系,不当作待归档散件
     ignore_dirs = [str(x).strip("/\\") for x in (cfg["general"].get("folder_ignore") or [])]
+    # 已经归好档的老夹子不能当成"丢进来的新文件夹"再拆一遍:
+    #   ① 带编号的老分类夹(02-1 OMCC函件、04-3 …) ② 里面文件名已经是 日期_类型_主题 的样子
+    numbered = re.compile(r"^\d{2}([-_ ]\d+)?" + r"(\s|$|\D)")
+    dated = re.compile(r"^\d{4}-\d{2}-\d{2}_")
+
+    def _looks_archived(d):
+        if numbered.match(d.name):
+            return True
+        try:
+            names = [x.name for x in d.iterdir() if x.is_file()]
+        except Exception:
+            return False
+        return bool(names) and sum(1 for n in names if dated.match(n)) * 2 >= len(names)
     files = []
     for dirpath, dirnames, filenames in os.walk(root):
         d = Path(dirpath)
@@ -1176,8 +1209,14 @@ def gather_files(cfg):
             continue
         if depth >= 3:
             dirnames[:] = []
-        dirnames[:] = [n for n in dirnames
-                       if n.lower() not in _SKIP_DIRS and n not in tops]
+        keep = []
+        for n in dirnames:
+            if n.lower() in _SKIP_DIRS or n in tops:
+                continue
+            if _looks_archived(d / n):               # 老归档夹:整棵不动
+                continue
+            keep.append(n)
+        dirnames[:] = keep
         for name in filenames:
             if fnmatch_any(name, cfg["ignore"]["patterns"]):
                 continue
@@ -1343,6 +1382,8 @@ def process(cfg, apply=False, quiet=False):
         records, text_items, image_items, audio_items, video_items, skipped = [], [], [], [], [], []
         text_local_items = []      # 敏感且 read_with=local:走本机 claude 订阅读,不经中转
         for idx, path in enumerate(files):
+            if not quiet and apply:
+                log(f"  · 采集 {idx+1}/{len(files)}: {path.name[:50]}")
             if apply and not is_stable(path, cfg["general"]["stable_seconds"]):
                 skipped.append((path.name, "未就绪/下载中"))
                 continue
@@ -1449,9 +1490,17 @@ def process(cfg, apply=False, quiet=False):
 
         if jobs:
             workers = max(1, min(cfg["brain"].get("max_concurrent", 3), len(jobs)))
+            total_read = len(text_items) + len(text_local_items) + len(image_items) + len(audio_items) + len(video_items)
+            if not quiet:
+                log(f"⏳ 大脑处理中: {len(jobs)} 个任务 / {total_read} 件内容,并发 {workers} —— "
+                    f"本机小模型每件要十几秒到一分钟,这一段没有输出是正常的")
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                got_n = 0
                 for got in ex.map(_run, jobs):
                     results.update(got)
+                    got_n += len(got)
+                    if not quiet:
+                        log(f"  · 大脑回来 {got_n}/{total_read} 件")
             log(f"  · 大脑并发完成 {len(results)}/{len(text_items)+len(text_local_items)+len(image_items)+len(audio_items)+len(video_items)} 条")
 
         # 3) 组装命名 + 落地/预览

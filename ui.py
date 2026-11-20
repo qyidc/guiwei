@@ -209,6 +209,16 @@ class Job:
             self.cv.notify_all()
 
 
+def api_jobs():
+    """给页面刷新后重新挂上正在跑的任务用:以前刷新一下就显示"空闲",后台进程还在动。"""
+    with JOBS_LOCK:
+        items = [{"id": j.key, "cmd": j.cmd, "started": j.started, "done": j.done,
+                  "code": j.code, "elapsed": int(time.time() - float(j.key) / 1000)}
+                 for j in JOBS.values()]
+    items.sort(key=lambda x: x["id"])
+    return {"jobs": items}
+
+
 def run_job(cmd):
     args = COMMANDS.get(cmd)
     if not args:
@@ -291,6 +301,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send({"text": "", "error": err}, 500)
             name = "_预览.md" if u.path.endswith("preview") else "目录.md"
             return self._send({"text": _read_text(cfg["general"]["system_dir"], name)})
+        if u.path == "/api/jobs":
+            return self._send(api_jobs())
         if u.path == "/api/job":
             key = (qs.get("id") or [""])[0]
             return self._sse(key)

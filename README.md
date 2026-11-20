@@ -56,7 +56,7 @@ export GEMINI_API_KEY=...            # 音频/视频
 python organize.py init --root ~/Inbox        # 建 索引/ 系统目录 + 默认 规则.json
 ```
 
-收件夹里**整包丢一个文件夹**也会处理：里面的文件（最多往下三层）按同样的规则改名归类，搬空后的空夹自动收走；已经归档的体裁夹（`01 规章制度` … `10 综合事务`）和 `索引/` 不会被碰。代码项目、`node_modules`、回收站这类目录永远跳过。
+收件夹里**整包丢一个文件夹**也会处理：里面的文件（最多往下三层）按同样的规则改名归类，搬空后的空夹自动收走。已经归档的东西一概不动：编号老分类夹（`02-1 OMCC函件`、`04-3 …`）、里面文件名已经是 `日期_类型_主题` 的夹子、体裁夹（`01 规章制度` … `10 综合事务`）、`索引/`；代码项目、`node_modules`、回收站这类目录也永远跳过。
 *Drop a whole folder into the inbox and its files (up to three levels deep) are filed the same way; emptied folders are cleaned up, while existing category folders and `索引/` are left alone.*
 
 **3. 先 dry-run，再实跑 · Preview, then apply**:
