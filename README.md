@@ -66,6 +66,31 @@ powershell -ExecutionPolicy Bypass -File watch.ps1 -Root "$env:USERPROFILE\Inbox
 powershell -ExecutionPolicy Bypass -File watch.ps1 -DryRun   # 只预览不动文件
 ```
 
+## 全本地运行 · Fully local
+
+`brain.backend="llm_relay"` 只是个「OpenAI 兼容协议」的名字——官方 API、第三方中转、本机的 llama.cpp / ollama / vLLM 都走它。要让**正文一个字节都不出这台机器**，把 `brain.local_only` 打开：它在 `load_config()` 里当场校验，配错就退出，不给你"以为不出机、其实全发中转"的状态。
+
+| 配置 | 结果 |
+|---|---|
+| `backend="claude_cli"`（本机 Claude 订阅） | ✅ 放行 |
+| `backend="llm_relay"` + base_url 是本机 loopback（`127.0.0.0/8` / `localhost` / `::1`） | ✅ 放行 |
+| 其它 | ❌ 启动即退出，报错里打印当前 `backend` 和**生效的** `base_url` |
+
+判的是**生效值**（环境变量优先于 `settings.local.json`），所以"规则.json 写本机、环境变量偷偷指远端"这种半吊子状态拦得住。`local_only` 下音频/视频依然一律不读——那条路只有 Gemini，本机没有对应实现，少一个能力好过把录音发出去。
+
+**接本机模型三步**（llama.cpp 为例，ollama / vLLM 同理）：
+
+1. 起服务：`llama-server -m Ornith-1.5-9B-Q4_K_M.gguf --port 8686`（ollama 默认 `http://127.0.0.1:11434/v1`）
+2. 写 `settings.local.json`（放脚本同目录，或用 `GUIWEI_SETTINGS` 指到别处；环境变量 `LLM_API_KEY` / `LLM_BASE_URL` 优先级更高）。它已在 `.gitignore` 里，不会被提交：
+   ```json
+   {"credentials": {"llm_relay": {"API_KEY": "local", "API_BASE_URL": "http://127.0.0.1:8686/v1"}}}
+   ```
+3. 改 `<收件夹>/索引/规则.json`：`brain.model` 填本地模型 id（llama.cpp 常填 gguf 路径），`brain.local_only` 设 `true`；本地小模型建议同时把 `brain.timeout` 调到 600–900（默认 180 容不下思考链）、`brain.max_concurrent` 压到 1–2、`brain.batch_size` 设 3 左右。
+
+实测（2026-11-20）：Ornith-1.5-9B-Q4_K_M @ `127.0.0.1:8686`，5 个文件实跑 1 分 43 秒、约 20 秒/件，`reconcile` 悬空 0 / 孤儿 0。9B 也能读出"华远科技智造平台三期""张伟、李娜、王强""EG-200 8 台 × 12000"这类细节，摘要可直接检索。
+
+*`brain.local_only` keeps the brain on this machine: either `claude_cli` (local Claude subscription) or an `llm_relay` whose **effective** base_url is loopback (`127.0.0.0/8`, `localhost`, `::1`) — the shape llama.cpp / ollama / vLLM take. It is checked at load time, so a config that only looks local fails fast with the actual `base_url` in the message. Audio/video stay unread under `local_only` because that path only exists via Gemini. Local models want a bigger `brain.timeout` and lower concurrency: a 9B Q4 on CPU costs ~20 s per file.*
+
 ## 命令 · Commands
 
 | 命令 | 作用 |
@@ -89,6 +114,7 @@ powershell -ExecutionPolicy Bypass -File watch.ps1 -DryRun   # 只预览不动�
 - `sensitive.keywords` / `content_keywords` — 命中即敏感（不读、不外发、打码）
 - `vocab.{客户,项目,人名}` — 别名归一表，防标签裂变
 - `brain.backend` / `brain.model` / `brain.gemini` — 模型与代理
+- `brain.local_only` — 只许本机大脑（`llm_relay` 指向 `127.0.0.1` 也算），配错启动即报错，见「全本地运行」
 - `general.stable_seconds` — 文件「下完」判定（**必须 < watcher 去抖 6s**）
 
 ## 安全 · Safety
@@ -98,9 +124,10 @@ powershell -ExecutionPolicy Bypass -File watch.ps1 -DryRun   # 只预览不动�
 - **敏感件闸门**：文件名或内容命中隐私词（健康/财务/凭据/密钥…，中英文词库）→ **不读内容、不发大模型**，只按文件名归档并给索引打码。
 - **不覆盖**：目标重名自动加序号；同盘 `os.replace` 原子移动；`sha256` 去重。
 - **单飞锁**：防并发重复处理。
+- **可强制全本地**：`brain.local_only=true` 时大脑必须在本机（本机 Claude 订阅，或 loopback 上的 llama.cpp/ollama），配错启动即退出并打印生效的 `base_url`。
 - **对账熔断**：批量「文件消失」超阈值疑似存储故障时，一条都不摘，避免误清空索引。
 
-*Dry-run by default · every move is logged and fully undoable · a sensitive-file gate never reads or uploads private files · no overwrite (auto-suffix, atomic same-volume move, sha256 dedup) · single-flight lock · reconcile has a circuit-breaker against mass-deletion false positives.*
+*Dry-run by default · every move is logged and fully undoable · a sensitive-file gate never reads or uploads private files · no overwrite (auto-suffix, atomic same-volume move, sha256 dedup) · single-flight lock · reconcile has a circuit-breaker against mass-deletion false positives · `brain.local_only` refuses to start unless the brain is actually on this machine.*
 
 ## 说明 · Notes
 
