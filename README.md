@@ -38,6 +38,9 @@ AI 时代，你每天产出的文件从几个变成几十上百个：网页、�
 
 **依赖 · Requirements**: Python 3.11+，`pip install pymupdf pillow openpyxl`（docx/pptx/html 走标准库，零额外依赖）。音视频功能需要 `ffmpeg` 在 PATH。实时监控（`watch.ps1`）是 Windows/PowerShell；`organize.py` 引擎本身跨平台。
 
+**Windows 双击就跑 · Double-click on Windows**: 仓库根目录的 `启动.bat` 全包了 —— 第一次运行自建 `.venv` 并装依赖，收件夹没初始化过就 `init`，然后起控制台并打开浏览器。也可以带参数：`启动.bat D:\收件夹 9000`（收件夹 + 端口，默认 `%USERPROFILE%\Inbox`、8787）。
+*`启动.bat` creates `.venv`, installs dependencies, initialises an un-initialised inbox, then starts the console and opens the browser. Args: `启动.bat <inbox> <port>`.*
+
 **1. 配置大模型 key · Configure keys** — 两种方式任选：
 
 环境变量 · Environment variables:
