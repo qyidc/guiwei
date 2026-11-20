@@ -2,6 +2,8 @@
 setlocal
 title 归位 · 启动
 cd /d "%~dp0"
+set "PYX=%~dp0.venv\Scripts\python.exe"
+
 
 rem 中文输出在 GBK 控制台会崩(UnicodeEncodeError),统一 UTF-8
 set "PYTHONUTF8=1"
@@ -32,10 +34,10 @@ if not exist ".venv\Scripts\python.exe" (
   echo [*] 第一次运行,创建虚拟环境 .venv ...
   %PY% -m venv .venv || goto fail
   echo [*] 装依赖:pymupdf pillow openpyxl ...
-  ".venv\Scripts\python.exe" -m pip install --upgrade pip >nul
-  ".venv\Scripts\python.exe" -m pip install pymupdf pillow openpyxl || goto fail
+  "%PYX%" -m pip install --upgrade pip >nul
+  "%PYX%" -m pip install pymupdf pillow openpyxl || goto fail
 )
-set "PYX=.venv\Scripts\python.exe"
+set "PYX=%~dp0.venv\Scripts\python.exe"
 
 rem ---------- 收件夹:没有就建,没初始化就 init ----------
 if not exist "%ROOT%\" mkdir "%ROOT%"

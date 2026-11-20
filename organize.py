@@ -400,7 +400,7 @@ def date_from_filename(name, min_year, max_year):
 def date_from_metadata(path, ext):
     try:
         if ext == "pdf":
-            import fitz
+            import pymupdf as fitz  # PyMuPDF 2.x 里 fitz 别名已弃用,这里显式用新名字
             doc = fitz.open(path)
             raw = (doc.metadata or {}).get("creationDate", "") or (doc.metadata or {}).get("modDate", "")
             doc.close()
@@ -498,7 +498,7 @@ def extract_text(path, ext, cfg):
                 raw = "  ".join(p.parts)
             return raw[:limit]
         if ext == "pdf":
-            import fitz
+            import pymupdf as fitz  # PyMuPDF 2.x 里 fitz 别名已弃用,这里显式用新名字
             doc = fitz.open(path)
             txt = []
             for i, page in enumerate(doc):
@@ -1270,7 +1270,7 @@ def process(cfg, apply=False, quiet=False):
     lk = acquire_lock(cfg) if apply else True
     if lk is None:
         if not quiet:
-            log("已有整理进程在运行(单飞锁),跳过。")
+            log("另一个整理进程正在跑(单飞锁):常见于同时开着命令行或第二个控制台窗口。本次跳过,等它跑完再点。")
         return
     try:
         seen = load_seen_hashes(cfg)
@@ -1599,7 +1599,7 @@ def migrate(cfg):
     幂等(已在正确夹的不动)、可 undo(undo 仍把文件还原到最初落点)、不删除(同盘原子移动)。"""
     lk = acquire_lock(cfg)
     if lk is None:
-        log("已有整理进程在运行(单飞锁),稍后再试。")
+        log("另一个整理进程正在跑(单飞锁):常见于同时开着命令行或第二个控制台窗口。稍后再试。")
         return
     try:
         root = Path(cfg["general"]["root"])
@@ -1649,7 +1649,7 @@ def reconcile(cfg, apply=True, quiet=False):
     lk = acquire_lock(cfg) if apply else True
     if lk is None:
         if not quiet:
-            log("已有整理进程在运行(单飞锁),稍后再对账。")
+            log("另一个整理进程正在跑(单飞锁):常见于同时开着命令行或第二个控制台窗口。稍后再对账。")
         return
     try:
         root = Path(cfg["general"]["root"])
