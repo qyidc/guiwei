@@ -36,6 +36,7 @@ import urllib.request
 import urllib.error
 import zipfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 # ----------------------------------------------------------------------------
 # 默认配置(规则.json 存在则覆盖)
@@ -101,7 +102,10 @@ DEFAULTS = {
         "model": "gpt-4o-mini",         # 任意 OpenAI 兼容多模态模型;要用 Claude/别家只需改 credentials 的 base_url + 这里的 model
         "credential_group": "llm_relay",
         # 🔴🔴 local_only(2026-08-14):正文一个字节都不出这台机器。打开后
-        #   · backend 必须是 claude_cli(用本机 Claude 订阅),否则启动即报错 —— 这条不能靠"记得配"
+        #   · 大脑必须在本机,否则启动即报错 —— 这条不能靠"记得配"。两种合法配置:
+        #       ①backend=claude_cli(本机 Claude 订阅)
+        #       ②backend=llm_relay + API_BASE_URL 指向本机(127.0.0.1/localhost/::1,
+        #         即 llama.cpp / ollama / vLLM 这类本地 OpenAI 兼容端点;按生效凭据判,不认配置字样)
         #   · 音频/视频**一律不读**:那条路只有 Gemini(第三方),本机没有对应实现。
         #     少一个能力,好过嘴上说不出机、实际把录音发出去。
         "local_only": False,
@@ -151,6 +155,20 @@ def strip_jsonc(text):
     return re.sub(r"(?m)^\s*//.*$", "", text)
 
 
+def is_loopback(base_url):
+    """base_url 是否指向本机(127.0.0.1 / localhost / ::1)。
+
+    local_only 靠它判断"正文到底会不会出机":跑本机 llama.cpp / ollama / vLLM 的 llm_relay
+    同样一个字节都不外发,不该被 "必须 claude_cli" 那条规则一道挡在门外。"""
+    try:
+        host = (urlparse(base_url or "").hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    return host in ("localhost", "::1") or host.startswith("127.")
+
+
 def load_config(root_hint=None):
     cfg = json.loads(json.dumps(DEFAULTS))  # deep copy
     root = root_hint or cfg["general"]["root"]
@@ -163,9 +181,20 @@ def load_config(root_hint=None):
             log(f"⚠ 规则.json 解析失败,用默认配置: {e}")
     # 🔴 local_only 的承诺必须在这儿兑现,而不是靠配置的人记得同时把 backend 也改了。
     #    配错就当场停,不给"以为不出机、其实全发中转"这种状态存在的机会。
-    if cfg["brain"].get("local_only") and cfg["brain"].get("backend") != "claude_cli":
-        raise SystemExit("规则.json 配置冲突: brain.local_only=true 要求 brain.backend=\"claude_cli\" "
-                         f"(当前是 \"{cfg['brain'].get('backend')}\")。正文不出机这件事不能只写一半。")
+    #    两条合法路径:①本机 Claude 订阅(claude_cli) ②llm_relay 的 base_url 指向本机
+    #    —— 后者是 llama.cpp / ollama 这类"模型在本机、仍走 OpenAI 协议"的用法(常见)。
+    if cfg["brain"].get("local_only"):
+        backend = cfg["brain"].get("backend")
+        if backend != "claude_cli":
+            # 按实际生效的凭据判断(环境变量优先,再看 settings.local.json),不只看配置里的字样
+            _, base_url = read_credential(cfg["brain"].get("credential_group") or "llm_relay")
+            if not is_loopback(base_url):
+                raise SystemExit(
+                    "规则.json 配置冲突: brain.local_only=true 要求大脑跑在本机,二选一 ——\n"
+                    "  · brain.backend=\"claude_cli\"(本机 Claude 订阅)\n"
+                    "  · brain.backend=\"llm_relay\" 且 API_BASE_URL 指向本机(127.0.0.1 / localhost / ::1)\n"
+                    f"当前 backend=\"{backend}\",生效的 base_url=\"{base_url}\"。"
+                    "正文不出机这件事不能只写一半。")
     return cfg
 
 
