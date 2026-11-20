@@ -120,8 +120,9 @@ def _db_rows(cfg, q="", cat="", limit=300):
                      "xiangmu LIKE ? OR leixing LIKE ? OR orig_name LIKE ?)")
         args += [like] * 7
     if cat:
-        where.append("category = ?")
-        args.append(cat)
+        # 多级分类:选「合同」要能看到 合同/华远 下的文件,所以按前缀匹配
+        where.append("(category = ? OR category LIKE ?)")
+        args += [cat, cat + "/%"]
     sql = ("SELECT date,category,new_name,kehu,renming,xiangmu,leixing,summary,new_path,sensitive "
            "FROM idx")
     if where:
@@ -158,12 +159,15 @@ def build_status():
         out["brain"] = {"backend": "?", "verdict": "配置无法加载", "local_only_ok": False}
         return out
     ledger = _ledger(cfg)
-    cats = Counter((r.get("category") or "?") for r in ledger)
+    # 多级分类按首段聚合(合同/华远、合同/中天 都算「合同」),paths 留完整路径给筛选下拉
+    cats = Counter(gw.top_segment(r.get("category") or "?") for r in ledger)
+    paths = sorted({r.get("category") or "" for r in ledger if r.get("category")})
     out["brain"] = _brain_state(cfg)
     out["stats"] = {
         "ledger": len(ledger),
         "db": len(_db_rows(cfg, limit=100000)),
         "categories": [{"name": k, "n": v} for k, v in cats.most_common()],
+        "paths": paths,
         "recent": ledger[-6:][::-1],
         "last_ts": (ledger[-1].get("ts") if ledger else ""),
     }

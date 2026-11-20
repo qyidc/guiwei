@@ -61,6 +61,12 @@ DEFAULTS = {
     },
     # 文档体裁顶级夹:文档(含敏感件)按命名里的 _类型_ 标签路由到与「文档」平级的顶级夹。
     # 子串匹配,命中第一个即停;都不中→留「文档」兜底。证件/凭据/纯敏感不在任何关键词里,自然落兜底(不进可见体裁夹)。
+    #
+    # folder 可以写多级(用 / 分隔),三段扩展(2026-11-20):
+    #   · 静态多级 "01 规章制度/01-2 SOP" —— 数字前缀、空格随意,拿来对齐现有目录习惯
+    #   · 标签占位 "客户/{客户}" —— {客户}{项目}{人名}{类型}{年} 用模型给的标签填,取空则这一段自动省掉
+    #   · sub 追加 "sub": "客户" —— 命中后在其下一层按该标签再分一段,等价于 "/{客户}" 但更好读
+    # 一级的老写法完全不变。
     "doc_genre_folders": [
         # match="name" 的规则匹配整个新文件名,"label"(默认)只匹配 类型 标签。
         # 口播/会议匹配整名:口播稿的"口播稿"在主题里、敏感转写的"逐字稿/转写"在文件名里,类型标签看不到。
@@ -873,10 +879,56 @@ def type_bucket(ext, cfg):
     return "其他"
 
 
-def route_category(base_category, label, full_name, cfg):
-    """文档路由到体裁顶级夹。每条规则按 match 决定匹配源:
+TAG_KEYS = ("客户", "项目", "人名", "类型")
+_BAD_SEG = re.compile(r'[<>:"|?*\x00-\x1f]')
+
+
+def _safe_segment(seg):
+    """一段目录名:去掉 Windows 非法字符与首尾点空格,拒绝 . / .. 这类穿越。"""
+    s = _BAD_SEG.sub("", str(seg or "")).strip()
+    s = s.strip(". ")
+    return "" if s in ("", ".", "..") else s
+
+
+def normalize_category(cat):
+    """把分类串归一成 a/b/c:分隔符统一成 /,空段丢掉,非法字符清掉。全空时兜底「文档」。"""
+    parts = [_safe_segment(p) for p in re.split(r"[\\/]+", str(cat or ""))]
+    parts = [p for p in parts if p]
+    return "/".join(parts) if parts else "文档"
+
+
+def top_segment(cat):
+    """分类的首段(folders 分析/迁移/UI 统计都按它认"这是自己的夹")。"""
+    return normalize_category(cat).split("/")[0]
+
+
+def _fill_folder(rule, tags):
+    """把 folder 里的 {客户}{项目}{人名}{类型}{年} 换成实际标签;取空的段丢掉,不留 //。"""
+    tags = tags or {}
+    raw = str(rule.get("folder") or "文档")
+
+    def sub_seg(key):
+        if key == "年":
+            return str(tags.get("_date", "") or "")[:4]
+        return tags.get(key) or ""
+
+    filled = re.sub(r"\{([^}]+)\}",
+                    lambda m: sub_seg(m.group(1).strip()) if m.group(1).strip() in TAG_KEYS + ("年",) else m.group(0),
+                    raw)
+    parts = [p for p in re.split(r"[\\/]+", filled) if p.strip() not in ("", "{}")]
+    sub = rule.get("sub")
+    if sub in TAG_KEYS:
+        v = _safe_segment(tags.get(sub) or "")
+        if v:
+            parts.append(v)
+    return "/".join(parts)
+
+
+def route_category(base_category, label, full_name, cfg, tags=None):
+    """文档路由到体裁夹(可多级)。每条规则按 match 决定匹配源:
     "label"(默认)只匹配 类型 标签——健康/财务/方案/知识用,避免主题词(如书名里的「方法论」)误伤;
     "name" 匹配整个新文件名——口播/会议用,因为口播稿的"口播稿"在主题里、敏感转写的"逐字稿/转写"在文件名里,标签看不到。
+    folder 支持 a/b 多级、{客户} 这类占位、sub 标签层(见 DEFAULTS 注释)。
     非文档→原样;敏感件命中体裁照样进对应夹(索引仍打码),证件/凭据/纯敏感不命中→留「文档」。"""
     if base_category != "文档":
         return base_category                 # 媒体/程序/代码 按模态,不动
@@ -886,16 +938,21 @@ def route_category(base_category, label, full_name, cfg):
         hay = name if rule.get("match") == "name" else label
         for kw in rule.get("keywords", []):
             if kw and kw in hay:
-                return rule["folder"]
+                return normalize_category(_fill_folder(rule, tags))
     return "文档"
 
 
 def dest_folder_names(cfg):
-    """所有归档目的地夹名(模态 + 体裁),analyze_folders 用来跳过、不当待裁决项。"""
+    """所有归档目的地夹名(模态 + 体裁),analyze_folders 用来跳过、不当待裁决项。
+    多级分类取首段,否则顶层「01 规章制度」会被当成别人的待裁决夹。"""
     names = set(cfg.get("types", {}).keys()) | {"其他", "文档"}
     for rule in cfg.get("doc_genre_folders", []):
-        if rule.get("folder"):
-            names.add(rule["folder"])
+        f = rule.get("folder")
+        if not f:
+            continue
+        if "{" not in f:
+            names.add(normalize_category(f))   # 静态路径整条
+        names.add(top_segment(f))              # 首段总要:占位/sub 填出来的层不影响跳过
     return names
 
 
@@ -1302,7 +1359,8 @@ def process(cfg, apply=False, quiet=False):
                 if not summary:
                     summary = ("（%s，未读内容，按文件名归档）" % r["type_bucket"]) if r.get("_route") == "noread" else "（自动梗概失败，沿用原名要素）"
                 new_name = build_name(r["date"], semantic, subj, topic, r["ext"], cfg)
-            r["category"] = route_category(r["category"], tags.get("类型", ""), new_name, cfg)  # 文档→体裁顶级夹
+            r["category"] = route_category(r["category"], tags.get("类型", ""), new_name, cfg,
+                                           dict(tags, _date=r["date"]))  # 文档→体裁夹(可多级)
             folder = root / r["category"]
             dest = unique_dest(folder, new_name)
             prop = {"orig_name": r["orig_name"], "orig_path": str(r["path"]),
@@ -1475,14 +1533,16 @@ def migrate(cfg):
             return
         lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
         recs = [json.loads(l) for l in lines]
-        doc_folders = {"文档"} | {ru.get("folder") for ru in cfg.get("doc_genre_folders", [])}
+        # 首段归一:多级分类("01 规章制度/01-2 SOP")也算自己人,否则父夹下的旧记录永远不重判
+        doc_folders = {"文档"} | {top_segment(ru.get("folder")) for ru in cfg.get("doc_genre_folders", []) if ru.get("folder")}
         moved = 0
         for i, r in enumerate(recs):
             if r.get("action") != "move":
                 continue
             cur = r.get("category", "")
-            base = "文档" if cur in doc_folders else cur   # 已在体裁夹的也重判,容许夹间迁移(如口播里的会议转写)
-            target = route_category(base, (r.get("tags") or {}).get("类型", ""), r.get("new_name", ""), cfg)
+            base = "文档" if top_segment(cur) in doc_folders else cur   # 已在体裁夹的也重判,容许夹间迁移(如口播里的会议转写)
+            target = route_category(base, (r.get("tags") or {}).get("类型", ""), r.get("new_name", ""), cfg,
+                                    dict(r.get("tags") or {}, _date=r.get("date", "")))
             if target == cur:
                 continue                       # 已在正确夹 / 长尾留文档 / 媒体不动
             src = Path(r["new_path"])

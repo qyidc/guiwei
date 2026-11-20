@@ -215,9 +215,13 @@ function renderOverview(){
       <div class="sm">${esc(r.category||"")} · ${esc(r.date||"")} ${r.sensitive ? "· 敏感(已打码)" : ""}</div>
       <div class="sm">${esc((r.summary||"").slice(0,90))}</div></div>`).join("")
     : `<span class="hint">还没有归档记录。</span>`;
-  const cats2 = [...new Set(((S.stats||{}).categories||[]).map(c=>c.name))];
+  const paths = ((S.stats||{}).paths || []).filter(Boolean);
+  const cats2 = paths.length ? paths : [...new Set(((S.stats||{}).categories||[]).map(c=>c.name))];
   const sel = $("#cat").value;
-  $("#cat").innerHTML = `<option value="">全部分类</option>` + cats2.map(c=>`<option ${c===sel?"selected":""}>${esc(c)}</option>`).join("");
+  $("#cat").innerHTML = `<option value="">全部分类</option>` + cats2.map(c=>{
+    const depth = c.split("/").length - 1;
+    return `<option value="${esc(c)}" ${c===sel?"selected":""}>${esc("　".repeat(depth) + c.split("/").pop())}</option>`;
+  }).join("");
 }
 
 async function refresh(){

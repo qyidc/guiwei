@@ -128,7 +128,7 @@ python ui.py --root ~/Inbox --port 9000 --open
 | `folders` | 分析根目录下的文件夹，出裁决清单（只识别不动手） |
 | `reindex` | 从台账重建 SQLite + 目录.md |
 | `reconcile [--dry-run]` | 索引↔磁盘对账：摘除悬空、列出孤儿（不碰文件） |
-| `migrate` | 一次性把已归档文档按体裁规则回迁到顶级夹（可 undo） |
+| `migrate` | 按当前体裁规则把已归档文档回迁（支持多级夹，可 undo） |
 | `init` | 建系统目录骨架 + 默认 `规则.json` |
 
 ## 配置 · Configuration
@@ -136,12 +136,35 @@ python ui.py --root ~/Inbox --port 9000 --open
 改 `<收件夹>/索引/规则.json`（支持整行 `//` 注释），无需动代码：
 
 - `types` — 扩展名 → 类型桶
-- `doc_genre_folders` — 文档按类型标签/文件名路由到体裁顶级夹
+- `doc_genre_folders` — 文档按类型标签/文件名路由到体裁夹（可以多级，见下）
 - `sensitive.keywords` / `content_keywords` — 命中即敏感（不读、不外发、打码）
 - `vocab.{客户,项目,人名}` — 别名归一表，防标签裂变
 - `brain.backend` / `brain.model` / `brain.gemini` — 模型与代理
 - `brain.local_only` — 只许本机大脑（`llm_relay` 指向 `127.0.0.1` 也算），配错启动即报错，见「全本地运行」
 - `general.stable_seconds` — 文件「下完」判定（**必须 < watcher 去抖 6s**）
+
+### 多级分类 · Nested folders
+
+`doc_genre_folders` 的 `folder` 可以是多层路径，三种写法可混用：
+
+```jsonc
+"doc_genre_folders": [
+  // ① 静态多级：照搬你自己的编号体系（如 01 大类 / 01-2 子类）
+  {"folder": "01 规章制度/01-2 SOP",     "keywords": ["作业指导书", "SOP"]},
+  {"folder": "03 会议与汇报/03-4 会议纪要与周例会", "keywords": ["会议纪要"]},
+  // ② 占位符按标签分层：{客户} {项目} {人名} {类型} {年}
+  {"folder": "合同/{客户}",              "keywords": ["合同"]},
+  // ③ sub 按某个标签再分一层（等价于 ② 的写法，但标签值来自模型识别）
+  {"folder": "财务", "sub": "客户",      "keywords": ["报价单", "发票"]}
+]
+```
+
+- 路径里的非法字符（`< > : " | ? *`）会被删掉，`..` 直接拒；占位符取不到值时整段丢掉，不会留下空目录。
+- `folders` 的裁决清单与 `migrate` 都只按**首段**判断「是不是已有体裁夹」，所以多级夹不会被当成"待裁决的散夹"。
+- 改完规则对存量生效：`migrate`（按新规则回迁）+ `reindex`（重建索引）。控制台的分类下拉按路径缩进显示，筛选按前缀匹配。
+- 常见做法是「索引单独一个夹 + 两级编号大类/子类 + 个别按年份或项目再分一层」，照抄成上面的 ① 型规则即可。
+
+*`folder` may be a multi-level path: static (`"01 规章制度/01-2 SOP"`), placeholder-filled (`"合同/{客户}"`), or a static parent plus `"sub": "客户"`. Placeholders `{客户} {项目} {人名} {类型} {年}`; missing values drop the whole segment. `folders` and `migrate` compare by the first segment only, so nested folders are not mistaken for stray folders.*
 
 ## 安全 · Safety
 
