@@ -75,8 +75,8 @@ DEFAULTS = {
     # 顺序即优先级:先具体(纪要/SOP/移交/专项),再大类兜底,最后 general.folder_fallback 收尾。
     "doc_genre_folders": [
         # ── 03 会议与汇报 ───────────────────────────────────────────────
-        {"folder": "03 会议与汇报/03-4 会议纪要与周例会", "match": "any", "keywords": ["会议纪要", "纪要", "周例会", "逐字稿", "转写", "会议记录"]},
-        {"folder": "03 会议与汇报/03-1 会议通知", "match": "any", "keywords": ["会议通知", "会议安排", "会议邀请", "参会通知"]},
+        {"folder": "03 会议与汇报/03-4 会议纪要与周例会", "match": "any", "keywords": ["会议纪要", "notulen", "纪要", "周例会", "逐字稿", "转写", "会议记录"]},
+        {"folder": "03 会议与汇报/03-1 会议通知", "match": "any", "keywords": ["会议通知", "undangan", "会议安排", "会议邀请", "参会通知", "会议邀请函"]},
         {"folder": "03 会议与汇报/03-5 座谈会材料", "match": "any", "keywords": ["座谈"]},
         {"folder": "03 会议与汇报/03-6 领导讲话与批件", "match": "any", "keywords": ["领导讲话", "讲话稿", "批件", "批示"]},
         {"folder": "03 会议与汇报/03-2 月度总结与安委会", "match": "any", "keywords": ["月度总结", "安委会", "安全生产分析会"]},
@@ -94,7 +94,8 @@ DEFAULTS = {
         {"folder": "02 公文函件/02-3 专家组函件", "match": "any", "keywords": ["专家组"]},
         {"folder": "02 公文函件/02-5 固定设备部发文", "match": "any", "keywords": ["固定设备部", "设备部发文"]},
         {"folder": "02 公文函件/02-6 数据申请与函件", "match": "any", "keywords": ["数据申请", "调阅申请"]},
-        {"folder": "02 公文函件", "match": "any", "keywords": ["函件", "来文", "收文", "发文", "请示", "批复", "复函", "公函", "联络单", "函"]},
+        {"folder": "02 公文函件/02-4 其它收文", "match": "any", "keywords": ["surat masuk", "其它收文", "其他收文"]},
+        {"folder": "02 公文函件", "match": "any", "keywords": ["函件", "来文", "收文", "发文", "请示", "批复", "复函", "公函", "联络单", "函", "surat", "邀请函"]},
         # ── 01 规章制度 ────────────────────────────────────────────────
         {"folder": "01 规章制度/01-2 SOP", "match": "any", "keywords": ["SOP", "作业指导书", "检修工艺", "作业标准", "工艺卡"]},
         {"folder": "01 规章制度/01-5 安全生产责任制", "match": "any", "keywords": ["安全生产责任制", "责任制"]},
@@ -138,7 +139,7 @@ DEFAULTS = {
         {"folder": "10 综合事务/10-6 外部通知与停电", "match": "any", "keywords": ["停电", "外部通知", "停水"]},
         {"folder": "10 综合事务/10-8 社会活动与合作交流", "match": "any", "keywords": ["社会活动", "合作交流", "外事"]},
         {"folder": "10 综合事务/10-5 工作计划与任务分工", "match": "any", "keywords": ["工作计划", "任务分工", "工作安排"]},
-        {"folder": "10 综合事务/10-1 商务与合作", "match": "any", "keywords": ["商务", "合作", "合同", "报价", "报价单", "发票", "付款", "结算"]},
+        {"folder": "10 综合事务/10-1 商务与合作", "match": "any", "keywords": ["商务", "合作", "合同", "报价", "报价单", "发票", "付款", "结算", "kontrak", "penawaran", "invoice", "faktur"]},
         {"folder": "10 综合事务/10-3 人事与行政", "match": "any", "keywords": ["行政", "人事", "考勤"]},
         {"folder": "10 综合事务", "match": "any", "keywords": ["通知", "综合事务"]},
     ],
@@ -1003,8 +1004,9 @@ def route_category(base_category, label, full_name, cfg, tags=None, orig_name=""
         m = rule.get("match")
         # 默认只看类型标签;match="name" 看文件名;match="any" 标签+新名+原名都看(默认规则用这个)
         hay = hay_all if m == "any" else (name if m == "name" else label)
+        hay_l = hay.lower()
         for kw in rule.get("keywords", []):
-            if kw and kw in hay:
+            if kw and kw.lower() in hay_l:      # 大小写不敏感:Undangan/undangan 都算,SOP/sop 都算
                 return normalize_category(_fill_folder(rule, tags))
     fb = str((cfg.get("general") or {}).get("folder_fallback") or "").strip()
     if fb:
@@ -1143,19 +1145,74 @@ def release_lock(lk):
 # ----------------------------------------------------------------------------
 # scan / apply
 # ----------------------------------------------------------------------------
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea",
+              ".vscode", "$recycle.bin", "system volume information", ".dsh"}
+
+
 def gather_files(cfg):
+    """收集待处理文件:根目录的散文件 + 你整包丢进来的子文件夹里的文件。
+
+    不碰的三类:已经归档的体裁夹(01 规章制度 … 10 综合事务 这些首段)、系统目录(索引)、
+    代码/回收站这类不该扫描的目录;另外最多往下走三层,别把一棵老项目树整个拖进来。
+    """
     root = Path(cfg["general"]["root"])
-    sysname = cfg["general"]["system_dir"]
+    sysdir = (root / cfg["general"]["system_dir"])
+    sysdir_s = str(sysdir).rstrip("\\").lower()
+    known = set(dest_folder_names(cfg))
+    tops = {n.split("/")[0] for n in known} | known
+    # folder_ignore 里的目录(默认 00 索引文档)是用户自己的索引体系,不当作待归档散件
+    ignore_dirs = [str(x).strip("/\\") for x in (cfg["general"].get("folder_ignore") or [])]
     files = []
-    for entry in root.iterdir():
-        if entry.is_dir():
+    for dirpath, dirnames, filenames in os.walk(root):
+        d = Path(dirpath)
+        rel = d.relative_to(root)
+        depth = 0 if rel == Path(".") else len(rel.parts)
+        rel_s = rel.as_posix()
+        if any(rel_s == x or rel_s.startswith(x + "/") for x in ignore_dirs):
+            dirnames[:] = []
             continue
-        if entry.name == sysname:
+        if str(d).lower().startswith(sysdir_s):      # 索引/ 整个跳过
+            dirnames[:] = []
             continue
-        if fnmatch_any(entry.name, cfg["ignore"]["patterns"]):
-            continue
-        files.append(entry)
+        if depth >= 3:
+            dirnames[:] = []
+        dirnames[:] = [n for n in dirnames
+                       if n.lower() not in _SKIP_DIRS and n not in tops]
+        for name in filenames:
+            if fnmatch_any(name, cfg["ignore"]["patterns"]):
+                continue
+            files.append(d / name)
     return files
+
+
+def cleanup_empty_dirs(cfg, dirs):
+    """一个文件夹里的文件被搬空后,把留下的空壳收掉(只删空目录,一路往上收到收件夹为止)。"""
+    root = Path(cfg["general"]["root"]).resolve()
+    sysdir = (root / cfg["general"]["system_dir"]).resolve()
+    tops = {n.split("/")[0] for n in dest_folder_names(cfg)}
+    removed = []
+    for d in sorted({Path(x) for x in dirs}, key=lambda p: len(p.parts), reverse=True):
+        cur = d
+        while True:
+            try:
+                cur_r = cur.resolve()
+            except Exception:
+                break
+            if cur_r == root or root not in cur_r.parents:
+                break
+            if cur_r == sysdir or sysdir in cur_r.parents:
+                break
+            if cur.name in tops:                      # 体裁夹留着
+                break
+            try:
+                if any(cur.iterdir()):
+                    break
+                cur.rmdir()
+                removed.append(cur.name)
+                cur = cur.parent
+            except Exception:
+                break
+    return removed
 
 
 # ----------------------------------------------------------------------------
@@ -1277,7 +1334,7 @@ def process(cfg, apply=False, quiet=False):
         files = gather_files(cfg)
         if not files:
             if not quiet:
-                log("根目录没有待处理的散文件。")
+                log("收件夹里没有待处理的文件。")
             process_folders(cfg, apply, quiet)   # 没散文件也要判断文件夹(软件→压zip)
             return
         log(f"发现 {len(files)} 个散文件,开始{'实跑' if apply else 'dry-run'}…")
@@ -1461,6 +1518,10 @@ def process(cfg, apply=False, quiet=False):
         write_report(cfg, proposals, skipped, apply)
         if deferred:
             log(f"  ⏸ {deferred} 件大脑没读到,这轮不动它们,下轮再试")
+        if apply:
+            gone = cleanup_empty_dirs(cfg, [Path(r["orig_path"]).parent for r in proposals if r.get("orig_path")])
+            if gone:
+                log(f"🧹 收走了 {len(gone)} 个空文件夹: {'、'.join(gone[:6])}{' …' if len(gone) > 6 else ''}")
         log(f"完成。处理 {len(proposals)} 条,跳过 {len(skipped)} 条。"
             f"{'已写入台账,可 undo。' if apply else '这是 dry-run,未动文件,看 索引/_预览.md。'}")
         process_folders(cfg, apply, quiet)   # 散文件处理完,再判断文件夹(软件→压zip)

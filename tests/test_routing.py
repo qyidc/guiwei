@@ -4,6 +4,7 @@
 
 跑法:python -m unittest discover -s tests -v
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -71,6 +72,18 @@ class RouteTests(unittest.TestCase):
             gw.route_category("文档", "报告", "2026-11-20_报告_未命名材料要点.txt", cfg_with(rules),
                               {}, orig_name="关于申请检测数据的复函.txt"),
             "02 公文函件")
+
+    def test_keywords_case_insensitive(self):
+        rules = [{"folder": "02 公文函件", "match": "any", "keywords": ["surat"]}]
+        self.assertEqual(self.route(rules, name="Surat Masuk PT KCIC.pdf"), "02 公文函件")
+
+    def test_indonesian_default_rules(self):
+        cfg = json.loads(json.dumps(gw.DEFAULTS))
+        cases = [("Undangan Rapat Komite Keselamatan 2026.pdf", "03 会议与汇报/03-1 会议通知"),
+                 ("Notulen Rapat OCC 2026-11-18.pdf", "03 会议与汇报/03-4 会议纪要与周例会"),
+                 ("Kontrak Pekerjaan Perbaikan Jalan.pdf", "10 综合事务/10-1 商务与合作")]
+        for name, want in cases:
+            self.assertEqual(gw.route_category("文档", "", name, cfg, {}, orig_name=name), want)
 
     def test_static_nested(self):
         rules = [{"folder": "01 规章制度/01-2 SOP", "keywords": ["SOP"]}]

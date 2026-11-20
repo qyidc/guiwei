@@ -56,6 +56,9 @@ export GEMINI_API_KEY=...            # 音频/视频
 python organize.py init --root ~/Inbox        # 建 索引/ 系统目录 + 默认 规则.json
 ```
 
+收件夹里**整包丢一个文件夹**也会处理：里面的文件（最多往下三层）按同样的规则改名归类，搬空后的空夹自动收走；已经归档的体裁夹（`01 规章制度` … `10 综合事务`）和 `索引/` 不会被碰。代码项目、`node_modules`、回收站这类目录永远跳过。
+*Drop a whole folder into the inbox and its files (up to three levels deep) are filed the same way; emptied folders are cleaned up, while existing category folders and `索引/` are left alone.*
+
 **3. 先 dry-run，再实跑 · Preview, then apply**:
 ```bash
 python organize.py scan  --root ~/Inbox        # dry-run：只写 索引/_预览.md，不动文件
@@ -152,7 +155,7 @@ python ui.py --root ~/Inbox --port 9000 --open
 | 大类 | 子类（`folder` 关键词举例） |
 |---|---|
 | `01 规章制度` | 01-1 规章、01-2 SOP（作业指导书/检修工艺）、01-3 技术规章、01-5 安全生产责任制、01-7 表格与函件模板 |
-| `02 公文函件` | 02-1 OMCC、02-2 北京局、02-3 专家组、02-5 固定设备部发文、02-6 数据申请 |
+| `02 公文函件` | 02-1 OMCC、02-2 北京局、02-3 专家组、02-4 其它收文（surat masuk）、02-5 固定设备部发文、02-6 数据申请、02 函件兜底（函件/来文/收文/发文/请示/批复/复函/联络单/surat/邀请函） |
 | `03 会议与汇报` | 03-1 会议通知、03-2 月度总结与安委会、03-3 汇报材料、03-4 会议纪要与周例会、03-5 座谈会、03-6 领导讲话与批件 |
 | `04 施工与作业` | 04-1 技术组织措施、04-2 施工方案与审查、04-3 作业计划与派工 / 工务整改建议、04-4 大机捣固 / 工务概况、04-5 钢轨打磨 |
 | `05 检测与分析` | 05-1 CIT 综合检测、05-3 故障调查、05-4 专项测量与试验、05-5 重点区段监测、05-6 精调方案 |
@@ -164,6 +167,7 @@ python ui.py --root ~/Inbox --port 9000 --open
 | `11 技术档案` | 11-1 通信信号手册、11-2 静态验收测试、11-3 新线验收与安全评估、11-4 OMCC 移交、11-5 岗位移交、11-6 其它技术资料 |
 
 - 规则顺序就是优先级：先具体（纪要/SOP/移交/专项），再大类兜底，最后 `folder_fallback`。
+- 关键词大小写不敏感，且同时看「类型标签 + 新文件名 + 你的原名」；现场文件多是印尼语公文，所以 03-1/03-4/02/10-1 内置了 `undangan`(邀请)/`notulen`(纪要)/`surat`(函)/`kontrak`(合同)/`penawaran`(报价)/`invoice`。
 - 每条规则可带 `"match": "label" | "name" | "any"`：只看模型给的类型标签（默认）／只看文件名／**两者都看**（默认规则全用 `any`，因为公文和规章的体裁词几乎都在你起的原名里）。
 
 ### 多级分类 · Nested folders
