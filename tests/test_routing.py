@@ -50,8 +50,27 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.route(rules, label="会议纪要"), "会议")
 
     def test_non_document_passthrough(self):
+        # 非文档没有命中规则、也没配 folder_fallback 时,仍按模态原样进「图片」
         cfg = cfg_with([{"folder": "x", "keywords": ["x"]}])
-        self.assertEqual(gw.route_category("图片", "x", "x.png", cfg), "图片")
+        self.assertEqual(gw.route_category("图片", "截图", "屏幕截图.png", cfg), "图片")
+
+    def test_rule_matches_media_too(self):
+        # 命中规则时,图片/PDF 一样按内容进业务夹(工作收件夹里截图常要归到业务下面)
+        rules = [{"folder": "06 台账与图纸/06-3 组织架构与图纸", "match": "any", "keywords": ["图纸"]}]
+        self.assertEqual(self.route(rules, name="项目部组织架构图纸.png"), "06 台账与图纸/06-3 组织架构与图纸")
+
+    def test_folder_fallback(self):
+        cfg = cfg_with([])
+        cfg["general"] = {"folder_fallback": "10 综合事务/10-4 其它"}
+        self.assertEqual(gw.route_category("文档", "", "随便一个文件.pdf", cfg), "10 综合事务/10-4 其它")
+
+    def test_orig_name_participates(self):
+        # 模型把新名改成「报告」,但原名里的体裁词仍应生效
+        rules = [{"folder": "02 公文函件", "match": "any", "keywords": ["复函"]}]
+        self.assertEqual(
+            gw.route_category("文档", "报告", "2026-11-20_报告_未命名材料要点.txt", cfg_with(rules),
+                              {}, orig_name="关于申请检测数据的复函.txt"),
+            "02 公文函件")
 
     def test_static_nested(self):
         rules = [{"folder": "01 规章制度/01-2 SOP", "keywords": ["SOP"]}]

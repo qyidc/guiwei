@@ -48,6 +48,11 @@ DEFAULTS = {
         "stable_seconds": 4,            # 文件 mtime 需早于现在这么多秒才算"下完"。必须 < watcher 去抖(6s),否则扫描永远早于稳定→跳过卡死
         "max_filename_len": 180,
         "max_path_len": 250,
+        # 一条体裁规则都不命中时落哪里。留空 = 文档落「文档」、媒体落各自模态夹;
+        # 设成 "10 综合事务/10-4 其它" 这种路径 = 所有没认出来的件统一进一个"其它"夹(工作收件夹常用)。
+        "folder_fallback": "10 综合事务/10-4 其它",
+        # folders 裁决时直接跳过的目录(自己的索引/归档体系,不要被当成"待裁决散夹")
+        "folder_ignore": ["00 索引文档"],
     },
     "date": {"min_year": 2000},
     "types": {
@@ -59,25 +64,83 @@ DEFAULTS = {
         "程序": ["exe","msi","msix","appx","xapk","apk","dmg","pkg","deb","rpm","iso","img","bin","appimage"],
         "代码": ["py","js","ts","jsx","tsx","ps1","sh","bat","cmd","json","yaml","yml","toml","ini","cfg","conf","sql","java","c","cpp","h","go","rs","rb","php","vue","css","scss"],
     },
-    # 文档体裁顶级夹:文档(含敏感件)按命名里的 _类型_ 标签路由到与「文档」平级的顶级夹。
-    # 子串匹配,命中第一个即停;都不中→留「文档」兜底。证件/凭据/纯敏感不在任何关键词里,自然落兜底(不进可见体裁夹)。
+    # 文档体裁夹:文档(含敏感件)按命名里的 _类型_ 标签 / 文件名路由到工作目录。
+    # 子串匹配,命中第一个即停;都不中 → general.folder_fallback(没配就留「文档」/模态夹)。
     #
-    # folder 可以写多级(用 / 分隔),三段扩展(2026-11-20):
+    # folder 可以写多级(用 / 分隔):
     #   · 静态多级 "01 规章制度/01-2 SOP" —— 数字前缀、空格随意,拿来对齐现有目录习惯
     #   · 标签占位 "客户/{客户}" —— {客户}{项目}{人名}{类型}{年} 用模型给的标签填,取空则这一段自动省掉
     #   · sub 追加 "sub": "客户" —— 命中后在其下一层按该标签再分一段,等价于 "/{客户}" 但更好读
-    # 一级的老写法完全不变。
+    # 下面这一套是按"铁路/工务现场工作"归档习惯排的两级结构(01–11 大类 + NN-K 子类),
+    # 顺序即优先级:先具体(纪要/SOP/移交/专项),再大类兜底,最后 general.folder_fallback 收尾。
     "doc_genre_folders": [
-        # match="name" 的规则匹配整个新文件名,"label"(默认)只匹配 类型 标签。
-        # 口播/会议匹配整名:口播稿的"口播稿"在主题里、敏感转写的"逐字稿/转写"在文件名里,类型标签看不到。
-        # 口播排在会议前:口播稿的类型标签也是"逐字稿",先用主题里的"口播稿"判进口播,否则被会议的"逐字稿"吞走。
-        # 其余(健康/财务/方案/知识)只匹配类型标签,避免主题词误伤(如书名含"方法论"被吞进知识)。
-        {"folder": "口播", "match": "name", "keywords": ["口播稿"]},
-        {"folder": "会议", "match": "name", "keywords": ["会议纪要", "会议记录", "纪要", "逐字稿", "转写"]},
-        {"folder": "健康", "keywords": ["健康报告", "健康", "体检", "基因", "病历", "诊断", "医疗", "医学", "化验"]},
-        {"folder": "财务", "keywords": ["财务", "票据", "发票", "收据", "报价单", "报价", "账单", "对账", "完税", "报税", "预算"]},
-        {"folder": "方案", "keywords": ["方案", "策划", "企划", "大纲", "计划书", "提案"]},
-        {"folder": "知识", "keywords": ["技术指南", "指南", "教程", "方法论", "教学", "攻略", "手册", "白皮书"]},
+        # ── 03 会议与汇报 ───────────────────────────────────────────────
+        {"folder": "03 会议与汇报/03-4 会议纪要与周例会", "match": "any", "keywords": ["会议纪要", "纪要", "周例会", "逐字稿", "转写", "会议记录"]},
+        {"folder": "03 会议与汇报/03-1 会议通知", "match": "any", "keywords": ["会议通知", "会议安排", "会议邀请", "参会通知"]},
+        {"folder": "03 会议与汇报/03-5 座谈会材料", "match": "any", "keywords": ["座谈"]},
+        {"folder": "03 会议与汇报/03-6 领导讲话与批件", "match": "any", "keywords": ["领导讲话", "讲话稿", "批件", "批示"]},
+        {"folder": "03 会议与汇报/03-2 月度总结与安委会", "match": "any", "keywords": ["月度总结", "安委会", "安全生产分析会"]},
+        {"folder": "03 会议与汇报/03-3 汇报材料与工作报告", "match": "any", "keywords": ["汇报材料", "工作报告", "工作汇报", "汇报稿"]},
+        # ── 11 技术档案(移交类必须先判,否则被 OMCC/函件吞走) ─────────────
+        {"folder": "11 技术档案/11-5 岗位移交", "match": "any", "keywords": ["岗位移交", "交接清单", "交接单"]},
+        {"folder": "11 技术档案/11-4 OMCC移交资料", "match": "any", "keywords": ["OMCC移交", "移交资料", "移交数据"]},
+        {"folder": "11 技术档案/11-2 静态验收测试", "match": "any", "keywords": ["静态验收", "静态测试", "静测"]},
+        {"folder": "11 技术档案/11-3 新线验收与安全评估", "match": "any", "keywords": ["新线验收", "动态测试", "安全评估", "验收报告"]},
+        {"folder": "11 技术档案/11-1 通信信号手册", "match": "any", "keywords": ["手册", "manual", "Manual Book", "操作与维护"]},
+        {"folder": "11 技术档案/11-6 其它技术资料", "match": "any", "keywords": ["技术资料", "技术档案", "供应商技术"]},
+        # ── 02 公文函件 ────────────────────────────────────────────────
+        {"folder": "02 公文函件/02-1 OMCC函件", "match": "any", "keywords": ["OMCC"]},
+        {"folder": "02 公文函件/02-2 北京局函件", "match": "any", "keywords": ["北京局"]},
+        {"folder": "02 公文函件/02-3 专家组函件", "match": "any", "keywords": ["专家组"]},
+        {"folder": "02 公文函件/02-5 固定设备部发文", "match": "any", "keywords": ["固定设备部", "设备部发文"]},
+        {"folder": "02 公文函件/02-6 数据申请与函件", "match": "any", "keywords": ["数据申请", "调阅申请"]},
+        {"folder": "02 公文函件", "match": "any", "keywords": ["函件", "来文", "收文", "发文", "请示", "批复", "复函", "公函", "联络单", "函"]},
+        # ── 01 规章制度 ────────────────────────────────────────────────
+        {"folder": "01 规章制度/01-2 SOP", "match": "any", "keywords": ["SOP", "作业指导书", "检修工艺", "作业标准", "工艺卡"]},
+        {"folder": "01 规章制度/01-5 安全生产责任制", "match": "any", "keywords": ["安全生产责任制", "责任制"]},
+        {"folder": "01 规章制度/01-7 表格与函件模板", "match": "any", "keywords": ["模板", "表格", "台账模板"]},
+        {"folder": "01 规章制度", "match": "any", "keywords": ["规章", "制度", "办法", "规范", "细则", "规程", "条例", "标准", "规定", "准则"]},
+        # ── 04 施工与作业 ──────────────────────────────────────────────
+        {"folder": "04 施工与作业/04-1 施工技术组织措施", "match": "any", "keywords": ["技术组织措施", "组织措施"]},
+        {"folder": "04 施工与作业/04-4 大机捣固专项", "match": "any", "keywords": ["捣固"]},
+        {"folder": "04 施工与作业/04-5 钢轨打磨专项", "match": "any", "keywords": ["打磨"]},
+        {"folder": "04 施工与作业/04-2 施工方案与审查", "match": "any", "keywords": ["施工方案", "方案审查", "技术交底"]},
+        {"folder": "04 施工与作业/04-3 作业计划与派工", "match": "any", "keywords": ["作业计划", "派工", "天窗", "作业单"]},
+        {"folder": "04 施工与作业/04-4 工务概况", "match": "any", "keywords": ["工务概况", "设备概况"]},
+        {"folder": "04 施工与作业/04-3 工务整改建议", "match": "any", "keywords": ["整改建议", "工务整改"]},
+        {"folder": "04 施工与作业", "match": "any", "keywords": ["施工", "作业"]},
+        # ── 05 检测与分析 ──────────────────────────────────────────────
+        {"folder": "05 检测与分析/05-1 CIT综合检测", "match": "any", "keywords": ["CIT", "综合检测"]},
+        {"folder": "05 检测与分析/05-3 故障调查", "match": "any", "keywords": ["故障调查", "故障分析", "调查分析"]},
+        {"folder": "05 检测与分析/05-6 精调方案", "match": "any", "keywords": ["精调"]},
+        {"folder": "05 检测与分析/05-4 专项测量与试验", "match": "any", "keywords": ["测量", "试验", "测试数据"]},
+        {"folder": "05 检测与分析/05-5 重点区段监测", "match": "any", "keywords": ["监测", "重点区段"]},
+        {"folder": "05 检测与分析", "match": "any", "keywords": ["检测", "分析", "检测报告", "分析报告", "检查报告"]},
+        # ── 06 台账与图纸 ──────────────────────────────────────────────
+        {"folder": "06 台账与图纸/06-1 路基设备台账", "match": "any", "keywords": ["路基"]},
+        {"folder": "06 台账与图纸/06-2 路桥设备台账", "match": "any", "keywords": ["路桥", "桥梁", "桥隧"]},
+        {"folder": "06 台账与图纸/06-3 组织架构与图纸", "match": "any", "keywords": ["组织架构", "架构图", "图纸", "示意图"]},
+        {"folder": "06 台账与图纸", "match": "any", "keywords": ["台账", "设备台账"]},
+        # ── 07 人员与培训 ──────────────────────────────────────────────
+        {"folder": "07 人员与培训/07-1 人员简历", "match": "any", "keywords": ["简历", "履历"]},
+        {"folder": "07 人员与培训/07-3 技能竞赛", "match": "any", "keywords": ["技能竞赛", "竞赛"]},
+        {"folder": "07 人员与培训/07-4 人员名册与用工", "match": "any", "keywords": ["名册", "花名册", "用工"]},
+        {"folder": "07 人员与培训/07-5 人事通知", "match": "any", "keywords": ["人事通知", "任免"]},
+        {"folder": "07 人员与培训/07-2 培训与认证", "match": "any", "keywords": ["培训", "认证", "入职", "考试"]},
+        # ── 08 安全与防洪 ──────────────────────────────────────────────
+        {"folder": "08 安全与防洪/08-1 防洪防汛", "match": "any", "keywords": ["防洪", "防汛", "水害", "雨季"]},
+        {"folder": "08 安全与防洪/08-3 外部环境", "match": "any", "keywords": ["外部环境", "路外环境"]},
+        {"folder": "08 安全与防洪", "match": "any", "keywords": ["安全", "隐患", "风险", "应急", "事故"]},
+        # ── 09 党建工作 ────────────────────────────────────────────────
+        {"folder": "09 党建工作", "match": "any", "keywords": ["党建", "党日", "支部", "党员", "三会一课", "主题党日"]},
+        # ── 10 综合事务 ────────────────────────────────────────────────
+        {"folder": "10 综合事务/10-2 值班与排班", "match": "any", "keywords": ["值班", "排班", "值班表"]},
+        {"folder": "10 综合事务/10-6 外部通知与停电", "match": "any", "keywords": ["停电", "外部通知", "停水"]},
+        {"folder": "10 综合事务/10-8 社会活动与合作交流", "match": "any", "keywords": ["社会活动", "合作交流", "外事"]},
+        {"folder": "10 综合事务/10-5 工作计划与任务分工", "match": "any", "keywords": ["工作计划", "任务分工", "工作安排"]},
+        {"folder": "10 综合事务/10-1 商务与合作", "match": "any", "keywords": ["商务", "合作", "合同", "报价", "报价单", "发票", "付款", "结算"]},
+        {"folder": "10 综合事务/10-3 人事与行政", "match": "any", "keywords": ["行政", "人事", "考勤"]},
+        {"folder": "10 综合事务", "match": "any", "keywords": ["通知", "综合事务"]},
     ],
     "no_read": {
         "extensions": ["exe","msi","msix","appx","xapk","apk","dmg","pkg","iso","img","bin","zip","rar","7z","tar","gz","tgz","mp4","mkv","mov","avi","wmv","webm","m4v","mpg","mp3","wav","flac","m4a","aac","psd"],
@@ -924,28 +987,39 @@ def _fill_folder(rule, tags):
     return "/".join(parts)
 
 
-def route_category(base_category, label, full_name, cfg, tags=None):
+def route_category(base_category, label, full_name, cfg, tags=None, orig_name=""):
     """文档路由到体裁夹(可多级)。每条规则按 match 决定匹配源:
     "label"(默认)只匹配 类型 标签——健康/财务/方案/知识用,避免主题词(如书名里的「方法论」)误伤;
     "name" 匹配整个新文件名——口播/会议用,因为口播稿的"口播稿"在主题里、敏感转写的"逐字稿/转写"在文件名里,标签看不到。
     folder 支持 a/b 多级、{客户} 这类占位、sub 标签层(见 DEFAULTS 注释)。
-    非文档→原样;敏感件命中体裁照样进对应夹(索引仍打码),证件/凭据/纯敏感不命中→留「文档」。"""
-    if base_category != "文档":
-        return base_category                 # 媒体/程序/代码 按模态,不动
+    都不命中 → general.folder_fallback(配了就统一进"其它"夹),没配则文档留「文档」、媒体按模态。
+    敏感件命中体裁照样进对应夹(索引仍打码),证件/凭据/纯敏感不命中 → 兜底夹。"""
     label = label or ""
     name = full_name or ""
+    # 原名也参与:公文/规章的体裁词("通知/复函/作业指导书")几乎都在用户起的原名里,
+    # 新名是模型起的、可能被改写成"报告/材料",只看新名会漏。
+    hay_all = (label + " " + name + " " + (orig_name or "")).strip()
     for rule in cfg.get("doc_genre_folders", []):
-        hay = name if rule.get("match") == "name" else label
+        m = rule.get("match")
+        # 默认只看类型标签;match="name" 看文件名;match="any" 标签+新名+原名都看(默认规则用这个)
+        hay = hay_all if m == "any" else (name if m == "name" else label)
         for kw in rule.get("keywords", []):
             if kw and kw in hay:
                 return normalize_category(_fill_folder(rule, tags))
-    return "文档"
+    fb = str((cfg.get("general") or {}).get("folder_fallback") or "").strip()
+    if fb:
+        return normalize_category(fb)
+    return base_category
 
 
 def dest_folder_names(cfg):
     """所有归档目的地夹名(模态 + 体裁),analyze_folders 用来跳过、不当待裁决项。
     多级分类取首段,否则顶层「01 规章制度」会被当成别人的待裁决夹。"""
     names = set(cfg.get("types", {}).keys()) | {"其他", "文档"}
+    fb = str((cfg.get("general") or {}).get("folder_fallback") or "").strip()
+    if fb:
+        names.add(normalize_category(fb))
+        names.add(top_segment(fb))
     for rule in cfg.get("doc_genre_folders", []):
         f = rule.get("folder")
         if not f:
@@ -1360,7 +1434,8 @@ def process(cfg, apply=False, quiet=False):
                     summary = ("（%s，未读内容，按文件名归档）" % r["type_bucket"]) if r.get("_route") == "noread" else "（自动梗概失败，沿用原名要素）"
                 new_name = build_name(r["date"], semantic, subj, topic, r["ext"], cfg)
             r["category"] = route_category(r["category"], tags.get("类型", ""), new_name, cfg,
-                                           dict(tags, _date=r["date"]))  # 文档→体裁夹(可多级)
+                                           dict(tags, _date=r["date"]),
+                                           orig_name=r["orig_name"])  # 文档→体裁夹(可多级)
             folder = root / r["category"]
             dest = unique_dest(folder, new_name)
             prop = {"orig_name": r["orig_name"], "orig_path": str(r["path"]),
@@ -1491,7 +1566,8 @@ def analyze_folders(cfg):
     proj_markers = [".git", "package.json", "requirements.txt", "pom.xml", "Cargo.toml", "go.mod", "pyproject.toml", "node_modules"]
     media_ext = {"jpg","jpeg","png","gif","webp","mp4","mkv","mov","m4v","heic"}
     dests = dest_folder_names(cfg)            # 自己的归档目的地夹不算待裁决
-    for d in sorted([x for x in root.iterdir() if x.is_dir() and x.name != sysname and x.name not in dests]):
+    skip_more = {str(x) for x in (cfg["general"].get("folder_ignore") or [])} | {sysname}
+    for d in sorted([x for x in root.iterdir() if x.is_dir() and x.name not in skip_more and x.name not in dests]):
         files = [f for f in d.rglob("*") if f.is_file()]
         n = len(files)
         size_mb = round(sum(f.stat().st_size for f in files) / 1024 / 1024, 1)
@@ -1542,7 +1618,8 @@ def migrate(cfg):
             cur = r.get("category", "")
             base = "文档" if top_segment(cur) in doc_folders else cur   # 已在体裁夹的也重判,容许夹间迁移(如口播里的会议转写)
             target = route_category(base, (r.get("tags") or {}).get("类型", ""), r.get("new_name", ""), cfg,
-                                    dict(r.get("tags") or {}, _date=r.get("date", "")))
+                                    dict(r.get("tags") or {}, _date=r.get("date", "")),
+                                    orig_name=r.get("orig_name", ""))
             if target == cur:
                 continue                       # 已在正确夹 / 长尾留文档 / 媒体不动
             src = Path(r["new_path"])
