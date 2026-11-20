@@ -91,6 +91,29 @@ powershell -ExecutionPolicy Bypass -File watch.ps1 -DryRun   # 只预览不动�
 
 *`brain.local_only` keeps the brain on this machine: either `claude_cli` (local Claude subscription) or an `llm_relay` whose **effective** base_url is loopback (`127.0.0.0/8`, `localhost`, `::1`) — the shape llama.cpp / ollama / vLLM take. It is checked at load time, so a config that only looks local fails fast with the actual `base_url` in the message. Audio/video stay unread under `local_only` because that path only exists via Gemini. Local models want a bigger `brain.timeout` and lower concurrency: a 9B Q4 on CPU costs ~20 s per file.*
 
+**5. 想要个界面 · Want a UI**:
+```bash
+python ui.py --root ~/Inbox --open    # 见下节「控制台」
+```
+
+## 控制台 · Console
+
+不想背命令？`ui.py` 给引擎套了一个本地面板，配置、索引、运行情况在一个页面上看全：
+
+```bash
+python ui.py --root ~/Inbox          # 打开 http://127.0.0.1:8787/
+python ui.py --root ~/Inbox --port 9000 --open
+```
+
+- **概览** — 大脑状态（backend / model / **生效的** base_url / `local_only` 是否真的满足）、台账与索引条数、分类分布、最近归档、上一轮 `_预览.md`
+- **索引** — 按名字/摘要/客户/项目/类型搜索，按分类筛选，带完整路径
+- **配置** — 直接改 `规则.json`；保存时先验 JSON 语法，再跑一遍引擎的启动校验，`local_only` 冲突会回滚并把引擎原话贴回界面
+- **运行日志** — 预览扫描 / 实跑 / 撤销 / 对账 / 重建索引各一个按钮，输出走 SSE 实时刷，跑完自动刷新概览与索引
+
+零依赖（标准库 `http.server` + 一个原生页面，不引任何前端工具链），只监听 `127.0.0.1`，配置里的 key 只显示长度不回显，POST 带同源检查。
+
+*`ui.py` is an optional local console for the same engine: brain status (including whether `local_only` is actually satisfied), ledger/index counts, genre distribution, a searchable index browser, an in-place `规则.json` editor that reuses the engine's own startup validation, and one-click scan/apply/undo/reconcile with live SSE logs. Standard library only, bound to `127.0.0.1`, keys never echoed.*
+
 ## 命令 · Commands
 
 | 命令 | 作用 |

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>归位 · 控制台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235aa9ff'/%3E%3Cpath d='M9 21.5 16 9l7 12.5' stroke='%230e1116' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a22; --panel2:#1b2230; --line:#26303f;
+    --tx:#e3e9f2; --mut:#8b98ab; --acc:#5aa9ff; --ok:#43d19a; --warn:#f2b13f; --err:#ff6b6b;
+    --mono:ui-monospace,SFMono-Regular,"Cascadia Mono","Consolas",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  a{color:var(--acc)}
+  header{display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:rgba(14,17,22,.92);backdrop-filter:blur(6px);z-index:5}
+  .logo{font-size:19px;font-weight:700;letter-spacing:.5px}
+  .logo small{font-weight:400;color:var(--mut);font-size:12px;margin-left:6px}
+  .root{font-family:var(--mono);font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .btn{background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:8px;
+    padding:6px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{border-color:var(--acc);color:#fff}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.pri{background:#1d3a5c;border-color:#2a5d92}
+  .btn.danger:hover{border-color:var(--err);color:var(--err)}
+  main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
+  .banner{border:1px solid #6b2b2b;background:#2a1618;color:#ffb4b4;border-radius:10px;padding:12px 14px;
+    margin-bottom:18px;font-size:13px;white-space:pre-wrap;font-family:var(--mono)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card h3{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--mut);letter-spacing:.6px;text-transform:uppercase}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:2px 0}
+  .kv span:first-child{color:var(--mut);flex:none}
+  .kv span:last-child{font-family:var(--mono);font-size:12px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .big{font-size:26px;font-weight:700;line-height:1.2}
+  .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--mut)}
+  .tag.ok{color:var(--ok);border-color:#1e5c46;background:#10241d}
+  .tag.warn{color:var(--warn);border-color:#5a4415;background:#241d0e}
+  .tag.err{color:var(--err);border-color:#5c2020;background:#241012}
+  nav{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  nav button{background:none;border:none;color:var(--mut);padding:9px 14px;font-size:14px;cursor:pointer;
+    border-bottom:2px solid transparent}
+  nav button.on{color:var(--tx);border-bottom-color:var(--acc)}
+  section{display:none} section.on{display:block}
+  .grid2{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  h2{font-size:14px;margin:0 0 10px;color:var(--mut);font-weight:600;letter-spacing:.4px}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .bar{display:grid;grid-template-columns:86px 1fr 38px;align-items:center;gap:10px;font-size:13px}
+  .bar i{display:block;height:9px;border-radius:99px;background:linear-gradient(90deg,#2a5d92,#5aa9ff)}
+  .bar b{font-weight:600;text-align:right;font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:13px}
+  .item .nm{font-family:var(--mono);font-size:12px;word-break:break-all}
+  .item .sm{color:var(--mut);font-size:12px;margin-top:4px}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  textarea{width:100%;min-height:430px;background:#0b0f15;color:#cfe3ff;border:1px solid var(--line);
+    border-radius:10px;padding:12px;font-family:var(--mono);font-size:12.5px;line-height:1.55;resize:vertical}
+  input[type=search],select{background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+    border-radius:8px;padding:7px 10px;font-size:13px;font-family:var(--mono)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-size:11.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+    position:sticky;top:0;background:var(--bg);white-space:nowrap}
+  th:nth-child(1),td:nth-child(1),th:nth-child(2),td:nth-child(2){white-space:nowrap}
+  td:nth-child(1){font-family:var(--mono);color:var(--mut);font-size:12px}
+  td:nth-child(2){color:#cfe3ff;font-size:12.5px}
+  td.nm{font-family:var(--mono);font-size:12px;word-break:break-all}
+  td.sm{color:var(--mut);font-size:12px}
+  tr:hover td{background:#131924}
+  .pane{background:#070a0f;border:1px solid var(--line);border-radius:10px;padding:12px;
+    font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-all;max-height:460px;overflow:auto}
+  .pane .err{color:var(--err)} .pane .ok{color:var(--ok)} .pane .warn{color:var(--warn)}
+  pre{margin:0;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-word;
+    max-height:420px;overflow:auto;color:#c7d3e3}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:14px}
+  summary{cursor:pointer;color:var(--mut);font-size:13px}
+  .hint{color:var(--mut);font-size:12.5px;margin-top:8px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .dot{width:8px;height:8px;border-radius:99px;display:inline-block;margin-right:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">归位 <small>控制台</small></div>
+  <div class="root" id="rootPath">…</div>
+  <button class="btn" id="openBtn">打开收件夹</button>
+  <button class="btn" id="refreshBtn">刷新</button>
+</header>
+
+<main>
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="cards" id="cards"></div>
+
+  <nav>
+    <button data-tab="overview" class="on">概览</button>
+    <button data-tab="index">索引</button>
+    <button data-tab="config">配置</button>
+    <button data-tab="log">运行日志</button>
+  </nav>
+
+  <section id="tab-overview" class="on">
+    <div class="actions">
+      <button class="btn pri" data-run="scan">预览扫描(dry-run)</button>
+      <button class="btn" data-run="apply">实跑:改名 + 归档</button>
+      <button class="btn danger" data-run="undo">撤销最近一批</button>
+      <button class="btn" data-run="reconcile">对账</button>
+      <button class="btn" data-run="reindex">重建索引</button>
+      <button class="btn" data-run="init">初始化骨架</button>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>分类分布</h2>
+        <div class="bars" id="bars"><span class="hint">还没有归档记录。</span></div>
+      </div>
+      <div class="card">
+        <h2>最近归档</h2>
+        <div class="list" id="recent"><span class="hint">还没有归档记录。</span></div>
+      </div>
+    </div>
+    <details>
+      <summary>_预览.md · 上一轮 dry-run 的提案</summary>
+      <pre id="previewBox">（还没有预览文件）</pre>
+    </details>
+  </section>
+
+  <section id="tab-index">
+    <div class="row">
+      <input type="search" id="q" placeholder="搜名字 / 摘要 / 客户 / 项目 / 类型…" style="flex:1;min-width:240px">
+      <select id="cat"><option value="">全部分类</option></select>
+      <span class="hint" id="indexCount"></span>
+    </div>
+    <div style="overflow:auto;max-height:64vh">
+      <table>
+        <thead><tr><th>日期</th><th>分类</th><th>名字 / 摘要</th><th>标签</th></tr></thead>
+        <tbody id="idxBody"><tr><td colspan="4" class="sm">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-config">
+    <div class="row">
+      <button class="btn pri" id="saveCfg">保存并校验</button>
+      <button class="btn" id="reloadCfg">重新读取</button>
+      <span class="hint" id="cfgMsg"></span>
+    </div>
+    <textarea id="cfgText" spellcheck="false"></textarea>
+    <div class="hint">支持整行 <code>//</code> 注释。保存时会先验 JSON 语法，再跑一遍引擎的启动校验——
+      <code>brain.local_only=true</code> 时如果大脑不在本机，会原样回滚并把引擎的报错显示出来。</div>
+  </section>
+
+  <section id="tab-log">
+    <div class="row">
+      <span class="tag" id="jobState">空闲</span>
+      <span class="hint" id="jobMeta"></span>
+    </div>
+    <div class="pane" id="logBox">（运行任务后这里会出现输出）</div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let S = null, running = false, es = null;
+
+function tag(text, cls){ return `<span class="tag ${cls}">${esc(text)}</span>`; }
+
+function renderCards(){
+  const b = S.brain || {}, st = S.stats || {};
+  const brainCls = b.local_only ? (b.local_only_ok ? "ok" : "err") : (b.on_machine ? "ok" : "warn");
+  const brainNote = b.local_only
+    ? (b.local_only_ok ? "local_only 已开 · 大脑在本机" : "local_only 已开 · 大脑在远端 ✗")
+    : (b.on_machine ? "远端未启用 local_only" : "走远端端点");
+  $("#cards").innerHTML = `
+    <div class="card">
+      <h3>大脑</h3>
+      <div style="margin-bottom:8px">${tag(b.verdict || "?", brainCls)}</div>
+      <div class="kv"><span>backend</span><span>${esc(b.backend)}</span></div>
+      <div class="kv"><span>model</span><span title="${esc(b.model)}">${esc((b.model||"").split(/[\\\\/]/).pop())}</span></div>
+      <div class="kv"><span>base_url</span><span title="${esc(b.base_url)}">${esc(b.base_url || "—")}</span></div>
+      <div class="kv"><span>key</span><span>${b.key_set ? "已配置(长度 "+b.key_len+")" : "未配置"}</span></div>
+      <div class="kv"><span>来源</span><span title="${esc(b.cred_source)}">${esc((b.cred_source||"").split(/[\\\\/]/).pop())}</span></div>
+      <div class="hint" style="margin-top:8px">${esc(brainNote)}</div>
+    </div>
+    <div class="card">
+      <h3>台账</h3>
+      <div class="big">${st.ledger ?? 0}</div>
+      <div class="hint">可 undo 的记录数 · 最近 ${esc(st.last_ts || "—")}</div>
+      <div class="kv" style="margin-top:8px"><span>索引库</span><span>${st.db ?? 0} 条</span></div>
+      <div class="kv"><span>系统目录</span><span>${esc((S.general||{}).system_dir || "—")}</span></div>
+    </div>
+    <div class="card">
+      <h3>分类</h3>
+      <div class="big">${(st.categories||[]).length}</div>
+      <div class="hint">${esc((st.categories||[]).slice(0,5).map(c=>c.name+" "+c.n).join(" · ") || "—")}</div>
+      <div class="kv" style="margin-top:8px"><span>稳定判定</span><span>${esc((S.general||{}).stable_seconds ?? "—")}s</span></div>
+      <div class="kv"><span>文件</span><span>${Object.entries(S.files||{}).filter(([,v])=>v).length} 项就绪</span></div>
+    </div>`;
+}
+
+function renderOverview(){
+  const cats = (S.stats||{}).categories || [];
+  const max = Math.max(1, ...cats.map(c=>c.n));
+  $("#bars").innerHTML = cats.length ? cats.slice(0,12).map(c=>`
+    <div class="bar"><span>${esc(c.name)}</span><i style="width:${Math.max(6, c.n/max*100)}%"></i><b>${c.n}</b></div>`).join("")
+    : `<span class="hint">还没有归档记录。</span>`;
+  const recent = (S.stats||{}).recent || [];
+  $("#recent").innerHTML = recent.length ? recent.map(r=>`
+    <div class="item"><div class="nm">${esc(r.new_name || r.orig_name)}</div>
+      <div class="sm">${esc(r.category||"")} · ${esc(r.date||"")} ${r.sensitive ? "· 敏感(已打码)" : ""}</div>
+      <div class="sm">${esc((r.summary||"").slice(0,90))}</div></div>`).join("")
+    : `<span class="hint">还没有归档记录。</span>`;
+  const cats2 = [...new Set(((S.stats||{}).categories||[]).map(c=>c.name))];
+  const sel = $("#cat").value;
+  $("#cat").innerHTML = `<option value="">全部分类</option>` + cats2.map(c=>`<option ${c===sel?"selected":""}>${esc(c)}</option>`).join("");
+}
+
+async function refresh(){
+  const r = await fetch("/api/status"); S = await r.json();
+  $("#rootPath").textContent = S.root || "";
+  if (!S.ok && S.error){ $("#banner").style.display="block"; $("#banner").textContent = "配置无法加载：\n" + S.error; }
+  else $("#banner").style.display="none";
+  renderCards(); renderOverview();
+  loadPreview(); loadIndex();
+}
+
+async function loadPreview(){
+  const r = await fetch("/api/preview"); const j = await r.json();
+  $("#previewBox").textContent = j.text || "（还没有预览文件，先点「预览扫描」）";
+}
+
+let idxTimer = null;
+function loadIndex(){
+  clearTimeout(idxTimer);
+  idxTimer = setTimeout(async ()=>{
+    const q = $("#q").value.trim(), cat = $("#cat").value;
+    const r = await fetch(`/api/index?q=${encodeURIComponent(q)}&cat=${encodeURIComponent(cat)}`);
+    const j = await r.json();
+    if (j.error){ $("#idxBody").innerHTML = `<tr><td colspan="4" class="sm">${esc(j.error)}</td></tr>`; return; }
+    const rows = j.rows || [];
+    $("#indexCount").textContent = `${rows.length} 条`;
+    $("#idxBody").innerHTML = rows.length ? rows.map(r=>`
+      <tr><td class="sm">${esc(r.date||"")}</td><td>${esc(r.category||"")}</td>
+        <td class="nm">${esc(r.new_name||"")}<div class="sm">${esc((r.summary||"").slice(0,120))}</div>
+            <div class="sm" style="opacity:.6">${esc(r.new_path||"")}</div></td>
+        <td class="sm">${[r.kehu&&"客户:"+r.kehu, r.xiangmu&&"项目:"+r.xiangmu, r.renming&&"人:"+r.renming, r.leixing&&"类型:"+r.leixing].filter(Boolean).map(esc).join("<br>")}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="sm">没有匹配记录。</td></tr>`;
+  }, 250);
+}
+
+async function loadConfig(){
+  const r = await fetch("/api/config"); const j = await r.json();
+  $("#cfgText").value = j.text || "";
+  $("#cfgMsg").innerHTML = "";
+  if (j.error) $("#cfgMsg").innerHTML = tag("配置有错", "err") + " " + esc(j.error.split("\n")[0]);
+}
+
+$("#saveCfg").onclick = async ()=>{
+  const btn = $("#saveCfg"); btn.disabled = true; $("#cfgMsg").textContent = "保存中…";
+  const r = await fetch("/api/config", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({text: $("#cfgText").value})});
+  const j = await r.json(); btn.disabled = false;
+  if (j.error){ $("#cfgMsg").innerHTML = tag("未保存", "err") + "<div class='hint' style='white-space:pre-wrap'>" + esc(j.error) + "</div>"; }
+  else { $("#cfgMsg").innerHTML = tag("已保存并通过启动校验", "ok"); refresh(); loadConfig(); }
+};
+$("#reloadCfg").onclick = loadConfig;
+$("#refreshBtn").onclick = ()=>{ refresh(); loadConfig(); };
+$("#openBtn").onclick = async ()=>{
+  const r = await fetch("/api/open", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  const j = await r.json(); if (j.error) alert(j.error);
+};
+$("#q").oninput = loadIndex; $("#cat").onchange = loadIndex;
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick = ()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on", x===b));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id === "tab-"+b.dataset.tab));
+  if (b.dataset.tab === "config" && !$("#cfgText").value) loadConfig();
+  if (b.dataset.tab === "index") loadIndex();
+});
+
+function appendLog(line){
+  const box = $("#logBox");
+  if (box.textContent.startsWith("（运行任务")) box.textContent = "";
+  const cls = /⚠|失败|错误|冲突|Traceback/.test(line) ? "err" : (/✓|完成|重建/.test(line) ? "ok" : "");
+  const div = document.createElement("div"); if (cls) div.className = cls;
+  div.textContent = line; box.appendChild(div); box.scrollTop = box.scrollHeight;
+}
+
+function setBusy(on, cmd){
+  running = on;
+  $("#jobState").className = "tag " + (on ? "warn" : "");
+  $("#jobState").textContent = on ? "运行中" : "空闲";
+  $("#jobMeta").textContent = on ? `organize.py ${cmd} — 日志会实时刷在这` : "";
+  document.querySelectorAll("[data-run]").forEach(b=>b.disabled = on);
+}
+
+async function run(cmd){
+  if (running) return;
+  if (cmd === "apply" && !confirm("实跑会真的改名+移动文件（可 undo）。继续？")) return;
+  if (cmd === "undo" && !confirm("撤销最近一批归档记录？")) return;
+  if (es) { es.close(); es = null; }
+  const r = await fetch("/api/run", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({cmd})});
+  const j = await r.json();
+  if (j.error){ alert(j.error); return; }
+  document.querySelector('nav button[data-tab="log"]').click();
+  $("#logBox").textContent = "";
+  setBusy(true, cmd);
+  es = new EventSource(`/api/job?id=${j.id}`);
+  es.onmessage = e => { const d = JSON.parse(e.data); if (d.line) appendLog(d.line); };
+  es.addEventListener("done", e => {
+    const d = JSON.parse(e.data); es.close(); es = null; setBusy(false);
+    appendLog(d.code === 0 ? "✓ 任务完成" : `⚠ 任务退出码 ${d.code}`);
+    refresh(); loadConfig();
+  });
+  es.onerror = () => { if (es) { es.close(); es = null; setBusy(false); } };
+}
+
+document.querySelectorAll("[data-run]").forEach(b => b.onclick = ()=> run(b.dataset.run));
+
+refresh(); loadConfig();
+setInterval(()=>{ if (!running) { fetch("/api/status").then(r=>r.json()).then(j=>{ S=j; renderCards(); renderOverview(); }); } }, 8000);
+</script>
+</body>
+</html>
